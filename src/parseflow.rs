@@ -11,9 +11,11 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use tokio::fs;
 use tokio::io;
+use futures::future::join_all;
+use anyhow::Result;
 
 pub async fn parse(
-) -> Result<HashMap<String, HashMap<String, HashMap<String, Job>>>, Box<dyn std::error::Error>> {
+) -> Result<HashMap<String, HashMap<String, HashMap<String, Job>>>> {
     let mut result: HashMap<String, HashMap<String, HashMap<String, Job>>> = HashMap::new();
     let config: &InitConfig = InitConfig::global();
     let cron_dirs = config.target_cron_dir.clone();
@@ -29,7 +31,7 @@ pub async fn parse(
 
 async fn do_parse(
     config_path: &PathBuf,
-) -> Result<HashMap<String, HashMap<String, HashMap<String, Job>>>, Box<dyn std::error::Error>> {
+) -> Result<HashMap<String, HashMap<String, HashMap<String, Job>>>> {
     let mut result: HashMap<String, HashMap<String, HashMap<String, Job>>> = HashMap::new();
 
     let all_files = r_list(config_path.clone()).await?;
@@ -50,26 +52,45 @@ async fn do_parse(
             .map(|t| t.to_string_lossy().to_string())
             .unwrap_or_else(|| "unknown".to_string());
 
+        // Create a vector to store all the futures
+        let mut futures = Vec::new();
+        
         for f in files.iter() {
             if f.eq(project_file.unwrap()) {
                 continue;
             }
 
-            let cuts: HashMap<String, Vec<Job>> = cut_flow_into_each_task(&f).await?; // todo
+            let f = f.clone();
+            // Spawn a new task for each file
+            let future = tokio::spawn(async move {
+                cut_flow_into_each_task(&f).await
+            });
+            futures.push(future);
+        }
 
-            cuts.iter().for_each(|t| {
-                let flow_id = t.0;
-
-                for job in t.1 {
-                    let job_name = &job.job;
-                    result
-                        .entry(project_pure_name.clone())
-                        .or_insert_with(HashMap::new)
-                        .entry(flow_id.clone())
-                        .or_insert_with(HashMap::new)
-                        .insert(job_name.to_string(), job.clone());
+        // Wait for all futures to complete
+        let results = join_all(futures).await;
+        
+        // Process results
+        for task_result in results {
+            match task_result {
+                Ok(Ok(cuts)) => {
+                    cuts.iter().for_each(|t| {
+                        let flow_id = t.0;
+                        for job in t.1 {
+                            let job_name = &job.job;
+                            result
+                                .entry(project_pure_name.clone())
+                                .or_insert_with(HashMap::new)
+                                .entry(flow_id.clone())
+                                .or_insert_with(HashMap::new)
+                                .insert(job_name.to_string(), job.clone());
+                        }
+                    });
                 }
-            })
+                Ok(Err(e)) => eprintln!("Error processing file: {}", e),
+                Err(e) => eprintln!("Task failed: {}", e),
+            }
         }
     }
 
@@ -122,7 +143,7 @@ fn r_list(
 
 pub async fn cut_flow_into_each_task(
     config_path: &PathBuf,
-) -> Result<HashMap<String, Vec<Job>>, Box<dyn std::error::Error>> {
+) -> Result<HashMap<String, Vec<Job>>> {
     let mut result: HashMap<String, Vec<Job>> = HashMap::new();
     let content = fs::read_to_string(config_path).await?;
     let filename = config_path
@@ -218,7 +239,7 @@ mod tests {
     use std::path::PathBuf;
 
     #[tokio::test]
-    async fn test_do_parse() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_do_parse() -> Result<()> {
         let config_path = PathBuf::from("/Users/heise/enterprise/playground/new/ware/cron/");
 
         let map: HashMap<String, HashMap<String, HashMap<String, Job>>> =
@@ -236,7 +257,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_parse() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_parse() -> Result<()> {
         let parse = parse().await?;
 
         let i = parse.len();
@@ -247,7 +268,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_parse_single_project() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_parse_single_project() -> Result<()> {
         let config_path = PathBuf::from("/Users/heise/enterprise/playground/new/ware/cron/");
 
         let parse = r_list(config_path).await.unwrap();

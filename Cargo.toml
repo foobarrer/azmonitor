@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1"
 futures = "0.3"
 regex="1"
 mysql = "24.0.0"

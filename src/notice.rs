@@ -1,6 +1,7 @@
 use regex::Regex;
 use reqwest::Client;
 use serde_json::{json, Value};
+use anyhow::{anyhow, Result};
 
 
 pub async fn send(url: &str, user_id: &str, message: &str) {
@@ -35,7 +36,7 @@ pub async fn send(url: &str, user_id: &str, message: &str) {
     do_send(url, frame).await.unwrap()
 }
 
-async fn do_send(url: &str, data: Value) -> Result<(), Box<dyn std::error::Error>> {
+async fn do_send(url: &str, data: Value) -> Result<()> {
     let client = Client::new();
     let response = client
         .post(url)
@@ -48,7 +49,7 @@ async fn do_send(url: &str, data: Value) -> Result<(), Box<dyn std::error::Error
     if response.status().is_success() {
         Ok(())
     } else {
-        Err(format!("Request failed, status: {}", response.status()).into())
+        Err(anyhow!("Request failed, status: {}", response.status()))
     }
 }
 

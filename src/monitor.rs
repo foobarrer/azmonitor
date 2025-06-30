@@ -9,6 +9,7 @@ use mysql::prelude::*;
 use mysql::*;
 use reqwest::Client;
 use std::collections::HashMap;
+use anyhow::Result;
 
 pub struct AzkabanMonitor {
     pool: Pool,
@@ -17,7 +18,7 @@ pub struct AzkabanMonitor {
 }
 
 impl AzkabanMonitor {
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new() -> Result<Self> {
         let config: &InitConfig = InitConfig::global();
         let db_url = &config.db_full_url as &str;
 
@@ -31,7 +32,7 @@ impl AzkabanMonitor {
         })
     }
 
-    async fn process(&self) -> Result<Vec<Task>, Box<dyn std::error::Error>> {
+    async fn process(&self) -> Result<Vec<Task>> {
         let mut conn = self.pool.get_conn()?;
 
         let query = core_sql().await.unwrap_or_default();
@@ -81,11 +82,11 @@ impl AzkabanMonitor {
 
     async fn generate_message(
         tasks: HashMap<String, Vec<Task>>,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String> {
         let mut messages = vec![];
 
         for t in tasks {
-            let message = Self::do_generate_message(t.0.as_str(), t.1).await.unwrap();
+            let message = Self::do_generate_message(t.0.as_str(), t.1).await?;
             messages.push(message);
         }
 
@@ -95,7 +96,7 @@ impl AzkabanMonitor {
     async fn do_generate_message(
         project: &str,
         tasks: Vec<Task>,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String> {
         let mut multi_detail: Vec<String> = vec![];
 
         for x in tasks {
@@ -131,7 +132,7 @@ impl AzkabanMonitor {
         name_mapping: HashMap<String, String>,
         git_job: HashMap<String, HashMap<String, HashMap<String, Job>>>,
         az_task: Vec<Task>,
-    ) -> Result<Vec<Task>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<Task>> {
         let mut tasks = az_task;
         let mut jobs = git_job;
 
@@ -156,13 +157,13 @@ impl AzkabanMonitor {
         Ok(tasks)
     }
 
-    pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(&self) -> Result<()> {
         let mapping_file = &self.config.mapping_file as &str;
         let mappings = read_config(mapping_file).await.unwrap_or_default();
 
         let parse_jobs = parse().await?;
 
-        let tasks = self.process().await.unwrap_or(vec![]);
+        let tasks = self.process().await?;
 
         let tasks = self
             .merge_git_and_azkaban(mappings, parse_jobs, tasks)
@@ -192,7 +193,7 @@ impl AzkabanMonitor {
         for g in groups {
             let user_id = g.0.as_str();
 
-            let message = Self::generate_message(g.1).await.unwrap();
+            let message = Self::generate_message(g.1).await?;
 
             let urls = &self.config.feishu_url;
 

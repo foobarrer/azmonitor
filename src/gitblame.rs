@@ -1,22 +1,23 @@
 use crate::bean::Job;
+use anyhow::{anyhow, Result};
 use chrono::NaiveDateTime;
 use regex::Regex;
 use std::path::PathBuf;
 use tokio::process::Command;
 
-pub async fn blame(job: &Job) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn blame(job: &Job) -> Result<String> {
     let start_line_no = job.start;
     let end_line_no = job.end;
     let origin_file = &job.flow_file;
 
     let parent_path = origin_file
         .parent()
-        .ok_or("Can't get parent dir")?
+        .ok_or_else(|| anyhow!("Can't get parent dir"))?
         .canonicalize()?;
 
     let file_name = origin_file
         .file_name()
-        .ok_or("Can't get file name")?
+        .ok_or_else(|| anyhow!("Can't get file name"))?
         .to_string_lossy()
         .to_string();
 
@@ -30,7 +31,7 @@ pub async fn blame(job: &Job) -> Result<String, Box<dyn std::error::Error>> {
 
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("git blame failed: {}", err).into());
+        return Err(anyhow!("git blame failed: {}", err).into());
     }
 
     let blame_info = String::from_utf8_lossy(&output.stdout);
@@ -40,7 +41,7 @@ pub async fn blame(job: &Job) -> Result<String, Box<dyn std::error::Error>> {
     Ok(owner)
 }
 
-async fn extract_latest_author(blame_info: &str) -> Result<String, Box<dyn std::error::Error>> {
+async fn extract_latest_author(blame_info: &str) -> Result<String> {
     let re = Regex::new(r"\((\S+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})").unwrap();
     let mut latest_author = None;
     let mut latest_dt = None;

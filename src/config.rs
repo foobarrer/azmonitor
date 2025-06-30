@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -8,7 +9,7 @@ use std::fs;
 
 static CONFIG: OnceLock<InitConfig> = OnceLock::new();
 
-pub fn init() -> Result<InitConfig, Box<dyn std::error::Error>> {
+pub fn init() -> Result<InitConfig, anyhow::Error> {
     let pwd = std::env::current_dir()?;
 
     println!("pwd : {:?}", pwd);
@@ -21,7 +22,7 @@ pub fn init() -> Result<InitConfig, Box<dyn std::error::Error>> {
     } else if fallback_config_path.exists() {
         fallback_config_path
     } else {
-        return Err(format!(
+        return Err(anyhow!(
             "Could not find monitor.config in either:\n- {}\n- {}",
             preferred_config_path.display(),
             fallback_config_path.display()
@@ -50,8 +51,7 @@ pub fn init() -> Result<InitConfig, Box<dyn std::error::Error>> {
 }
 
 impl InitConfig {
-
-    pub fn do_parse() -> Result<(), Box<dyn std::error::Error>> {
+    pub fn do_parse() -> Result<()> {
         let config = init()?;
 
         CONFIG.set(config).expect("Config already initialized");
@@ -63,10 +63,8 @@ impl InitConfig {
     }
 }
 
-pub async fn read_config(
-    file_path: &str,
-) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
-    let config = InitConfig::global(); 
+pub async fn read_config(file_path: &str) -> Result<HashMap<String, String>> {
+    let config = InitConfig::global();
 
     let config_full_name = &config.mapping_file;
 
@@ -89,20 +87,18 @@ pub async fn read_config(
             let key = parts[0].to_string();
             let value = parts[1].to_string();
             config.insert(key, value);
-            
         } else if parts.len() == 3 {
             let key1 = parts[0].to_string();
             let key2 = parts[1].to_string();
             let value = parts[2].to_string();
             config.insert(key1, value.clone());
             config.insert(key2, value);
-            
         } else if parts.len() == 4 {
             let key1 = parts[0].to_string();
             let key2 = parts[1].to_string();
             let key3 = parts[2].to_string();
             let value = parts[3].to_string();
-            
+
             config.insert(key1, value.clone());
             config.insert(key2, value.clone());
             config.insert(key3, value);
@@ -114,22 +110,21 @@ pub async fn read_config(
 #[cfg(test)]
 mod tests {
     use crate::config::{init, read_config};
+    
+    use anyhow::Result;
 
     #[tokio::test]
-    async fn test_init_config() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_init_config() -> Result<()> {
         let result = init()?;
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_read_config() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_read_config() -> Result<()> {
         let file_path = "/Users/heise/source/config/taskr.csv";
-        let config = read_config(file_path).await.unwrap();
-        let value = config
-            .get("9527")
-            .cloned()
-            .unwrap_or("NOT_FOUND".into());
+        let config = read_config(file_path).await?;
+        let value = config.get("9527").cloned().unwrap_or("NOT_FOUND".into());
 
         Ok(())
     }
