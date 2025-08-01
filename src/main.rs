@@ -8,6 +8,7 @@ mod config;
 mod gitblame;
 mod notice;
 mod parseflow;
+mod style;
 
 use crate::bean::InitConfig;
 use dotenv::dotenv;

@@ -3,6 +3,9 @@
 
 use crate::bean::{InitConfig, Job};
 use crate::gitblame::blame;
+use crate::utli::starts_with_regex;
+use anyhow::Result;
+use futures::future::join_all;
 use futures::stream::{Stream, StreamExt};
 use regex::Regex;
 use std::collections::HashMap;
@@ -11,11 +14,111 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use tokio::fs;
 use tokio::io;
-use futures::future::join_all;
-use anyhow::Result;
 
-pub async fn parse(
-) -> Result<HashMap<String, HashMap<String, HashMap<String, Job>>>> {
+pub async fn cut_flow_into_each_task(config_path: &PathBuf) -> Result<HashMap<String, Vec<Job>>> {
+    let mut result: HashMap<String, Vec<Job>> = HashMap::new();
+    let content = fs::read_to_string(config_path).await?;
+    let filename = config_path
+        .file_stem()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let lines: Vec<&str> = content.lines().collect();
+
+    let mut jobs: Vec<Job> = Vec::new();
+    let mut current_job: Option<JobBuilder> = None;
+
+    #[derive(Debug)]
+    struct JobBuilder {
+        name: String,
+        start_line: u16,
+        end_line: i16,
+        other: String,
+        desc: String,
+    }
+
+    for (idx, line) in lines.iter().enumerate() {
+        let lno = (idx + 1) as u16;
+        let trimmed = line.trim();
+
+        // 匹配任务开始
+        if let Some(cap) = Regex::new(r"^\s*-\s*name:\s*(\S+)").unwrap().captures(line) {
+            let job_name = cap.get(1).unwrap().as_str().to_string();
+
+            if job_name == "dwd_v_income_zy_pdf" {
+                print!("dwd_v_income_zy_pdf")
+            }
+
+            if let Some(mut builder) = current_job.take() {
+                if builder.end_line == -1 {
+                    builder.end_line = (lno - 1) as i16
+                }
+
+                // 保存上一个任务
+                jobs.push(Job {
+                    start: builder.start_line,
+                    end: (builder.end_line - 1) as u16,
+                    flow: filename.clone(),
+                    job: builder.name,
+                    other: builder.desc.trim().to_string(),
+                    flow_file: config_path.clone(),
+                    owner: String::new(),
+                    desc: String::new(), // todo
+                });
+            }
+
+            // 开始新任务
+            current_job = Some(JobBuilder {
+                name: job_name,
+                start_line: lno,
+                end_line: -1,
+                other: String::new(),
+                desc: String::new(),
+            });
+        } else if let Some(builder) = &mut current_job {
+            // 如果是command行，更新end_line
+            if trimmed.trim().is_empty() && builder.end_line == -1 {
+                builder.end_line = (lno - 1) as i16;
+            }
+            if starts_with_regex(trimmed, "^\\s*#(?:\\s+[^\\s=][^=]*|\\S+)")
+                && builder.desc.trim().is_empty()
+            {
+                builder
+                    .desc
+                    .push_str(trimmed.trim_start_matches('#').trim());
+                builder.desc.push('\n');
+            }
+        }
+    }
+
+    // 处理最后一个任务
+    if let Some(builder) = current_job.take() {
+        jobs.push(Job {
+            start: builder.start_line,
+            end: lines.len() as u16,
+            flow: filename.clone(),
+            job: builder.name,
+            other: builder.desc.trim().to_string(),
+            flow_file: config_path.clone(),
+            owner: String::new(),
+            desc: builder.desc,
+        });
+    }
+
+    // 获取每个任务的owner
+    for job in jobs.iter_mut() {
+        job.owner = blame(job).await.unwrap_or_default();
+        result
+            .entry(filename.clone())
+            .or_default()
+            .push(job.clone());
+    }
+
+    Ok(result)
+}
+
+pub async fn parse_project_file() -> Result<HashMap<String, HashMap<String, HashMap<String, Job>>>>
+{
     let mut result: HashMap<String, HashMap<String, HashMap<String, Job>>> = HashMap::new();
     let config: &InitConfig = InitConfig::global();
     let cron_dirs = config.target_cron_dir.clone();
@@ -54,7 +157,7 @@ async fn do_parse(
 
         // Create a vector to store all the futures
         let mut futures = Vec::new();
-        
+
         for f in files.iter() {
             if f.eq(project_file.unwrap()) {
                 continue;
@@ -62,15 +165,13 @@ async fn do_parse(
 
             let f = f.clone();
             // Spawn a new task for each file
-            let future = tokio::spawn(async move {
-                cut_flow_into_each_task(&f).await
-            });
+            let future = tokio::spawn(async move { cut_flow_into_each_task(&f).await });
             futures.push(future);
         }
 
         // Wait for all futures to complete
         let results = join_all(futures).await;
-        
+
         // Process results
         for task_result in results {
             match task_result {
@@ -140,97 +241,6 @@ fn r_list(
     })
 }
 
-
-pub async fn cut_flow_into_each_task(
-    config_path: &PathBuf,
-) -> Result<HashMap<String, Vec<Job>>> {
-    let mut result: HashMap<String, Vec<Job>> = HashMap::new();
-    let content = fs::read_to_string(config_path).await?;
-    let filename = config_path
-        .file_stem()
-        .map(|f| f.to_string_lossy().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
-
-    let lines: Vec<&str> = content.lines().collect();
-
-    let mut in_nodes = false;
-    let mut jobs: Vec<Job> = Vec::new();
-    let mut start_line: Option<u16> = None;
-    let mut end_line: Option<u16> = None;
-    let mut job_name = String::new();
-    let mut other = String::new();
-    let mut desc = String::new();
-
-    let re_name = Regex::new(r"^\s*-\s*name:\s*(\S+)").unwrap();
-    let re_comment = Regex::new(r"^\s*#(.*)").unwrap();
-
-    for (idx, line) in lines.iter().enumerate() {
-        let lno = (idx + 1) as u16;
-
-        if line.trim_start().starts_with("nodes:") {
-            in_nodes = true;
-            continue;
-        }
-        if !in_nodes {
-            continue;
-        }
-        if line.trim().eq("") {
-            continue;
-        }
-
-        if let Some(cap) = re_name.captures(line) {
-            if let Some(st) = start_line {
-                jobs.push(Job {
-                    start: st,
-                    end: end_line.unwrap_or(lno - 1),
-                    flow: filename.clone(),
-                    job: job_name.clone(),
-                    other: other.trim().to_string(),
-                    flow_file: config_path.clone(),
-                    owner: String::from(""),
-                });
-            }
-            start_line = Some(lno);
-            job_name = cap[1].to_string();
-            other = desc.trim().to_string();
-            desc.clear();
-            end_line = None;
-        }
-
-        if start_line.is_none() {
-            if let Some(cap) = re_comment.captures(line) {
-                desc = cap[1].trim().to_string();
-            }
-        }
-
-        end_line = Some(lno);
-    }
-
-    if let Some(st) = start_line {
-        jobs.push(Job {
-            start: st,
-            end: end_line.unwrap_or(lines.len() as u16),
-            flow: filename.clone(),
-            job: job_name,
-            other: other.trim().to_string(),
-            flow_file: config_path.clone(),
-            owner: String::from(""),
-        });
-    }
-
-    for job in jobs.iter_mut() {
-        let username = blame(job).await.unwrap();
-        job.owner = username;
-        result
-            .entry(filename.clone())
-            .or_insert_with(Vec::new)
-            .push(job.clone());
-    }
-
-    Ok(result)
-}
-
-
 #[cfg(test)]
 
 mod tests {
@@ -258,7 +268,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parse() -> Result<()> {
-        let parse = parse().await?;
+        let parse = parse_project_file().await?;
 
         let i = parse.len();
 

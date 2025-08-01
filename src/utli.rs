@@ -1,10 +1,10 @@
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use flate2::read::GzDecoder;
 use mysql::{Row, Value};
+use regex::Regex;
 use serde_json::Value as JsonValue;
 use std::io::Read;
-
-
+use std::time::Duration;
 
 async fn decode(content: Vec<u8>) -> Option<Vec<u8>> {
     let mut decompressed_data = Vec::new();
@@ -53,7 +53,7 @@ pub async fn get_identity_from_flow(row: &Row) -> Option<String> {
     }
 }
 
-pub async fn get_output(row: &Row) -> Option<String> {
+pub async fn decode_field(row: &Row, column: &str) -> Option<String> {
     match row.get("output_params") {
         Some(Value::NULL) => None,
         Some(Value::Bytes(bytes)) => {
@@ -88,10 +88,22 @@ pub async fn get_datetime(row: &Row, column_name: &str) -> Option<DateTime<Utc>>
     })
 }
 
+pub fn duration(later: DateTime<Utc>, earlier: DateTime<Utc>) -> Duration {
+    let diff = later - earlier;
+    Duration::from_secs(diff.num_seconds() as u64)
+        + Duration::from_nanos((diff.num_nanoseconds().unwrap() % 1_000_000_000) as u64)
+}
+
+pub fn starts_with_regex(s: &str, pattern: &str) -> bool {
+    Regex::new(pattern) // ^ 表示字符串开始
+        .unwrap()
+        .is_match(s)
+}
+
 pub async fn core_sql() -> Option<&'static str> {
     let sql = r"
 
-      SELECT
+SELECT
     t.exec_id,
     t.name,
     t.flow_id,
@@ -130,4 +142,33 @@ ORDER BY t.name, t.flow_id, t.job_id;
       ";
 
     Some(sql)
+}
+
+pub fn format_duration_chinese(d: Duration) -> String {
+    let total_secs = d.as_secs();
+    match total_secs {
+        0..=59 => format!("{}秒", total_secs),
+        60..=3599 => {
+            let mins = total_secs / 60;
+            let secs = total_secs % 60;
+            if secs == 0 {
+                format!("{}分钟", mins)
+            } else {
+                format!("{}分钟{}秒", mins, secs)
+            }
+        }
+        _ => {
+            let hours = total_secs / 3600;
+            let remaining = total_secs % 3600;
+            let mins = remaining / 60;
+            let secs = remaining % 60;
+
+            match (mins, secs) {
+                (0, 0) => format!("{}小时", hours),
+                (_, 0) => format!("{}小时{}分钟", hours, mins),
+                (0, _) => format!("{}小时{}秒", hours, secs),
+                _ => format!("{}小时{}分钟{}秒", hours, mins, secs),
+            }
+        }
+    }
 }

@@ -67,14 +67,16 @@ async fn extract_latest_author(blame_info: &str) -> Result<String> {
 #[tokio::test]
 async fn test_blame() {
     let job = Job {
-        flow_file: PathBuf::from(""),
-        start: 217,
-        end: 227,
+        flow_file: PathBuf::from("/Users/fjyulu/enterprise/playground/new/warehouse/cron/warehouse/it_digital_day.flow"),
+        start: 239,
+        end: 246,
         flow: "idc_bill_cost_new".to_string(),
         job: "dwd_idc_tencloud_bill_detail_pmi".to_string(),
         other: " ".to_string(),
         owner: "".to_string(),
+        desc: "".to_string(),
     };
 
     let r = blame(&job).await.unwrap();
+    println!("result: {}", r);
 }
