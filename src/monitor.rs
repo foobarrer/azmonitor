@@ -180,9 +180,9 @@ impl AzkabanMonitor {
 
         let parse_jobs = parse_project_file().await?;
 
-        let tasks = self.process_execute_record().await?;
+        let mut tasks = self.process_execute_record().await?;
 
-        let tasks = self
+        tasks = self
             .merge_git_and_azkaban(mappings, parse_jobs, tasks)
             .await?;
 

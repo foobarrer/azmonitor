@@ -87,6 +87,7 @@ name = "azmonitor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cc",
  "chrono",
  "dotenv",
  "env_logger",

@@ -40,7 +40,7 @@ pub fn init() -> Result<InitConfig, anyhow::Error> {
 
     let filter_content: String = content
         .lines()
-        .filter(|l| !l.trim().starts_with("//"))
+        .filter(|l| !l.trim().starts_with("//") && !l.trim().starts_with("#"))
         .collect();
 
     let init_config: InitConfig = serde_json::from_str(&filter_content)?;

@@ -9,6 +9,7 @@ mod gitblame;
 mod notice;
 mod parseflow;
 mod style;
+mod build;
 
 use crate::bean::InitConfig;
 use dotenv::dotenv;
@@ -18,7 +19,6 @@ use serde_json::json;
 use std::env;
 use std::time::Duration;
 use tokio::time;
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging

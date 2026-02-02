@@ -132,7 +132,7 @@ FROM (
     JOIN azkaban.projects p
         ON ej.project_id = p.id
     WHERE
-    --    p.name IN ('-fan', '_test') AND
+        -- p.name IN ('warehouse', '_test') AND
         ej.start_time > (UNIX_TIMESTAMP(NOW(3)) * 1000) - 24 * 60 * 60 * 1000
         AND ej.status NOT IN (30, 50)
 ) t

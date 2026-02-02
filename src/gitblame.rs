@@ -38,6 +38,8 @@ pub async fn blame(job: &Job) -> Result<String> {
 
     let owner = extract_latest_author(blame_info.to_string().as_str()).await?;
 
+    println!("Blame : {blame_info} -> user : {owner}");
+
     Ok(owner)
 }
 
@@ -67,7 +69,9 @@ async fn extract_latest_author(blame_info: &str) -> Result<String> {
 #[tokio::test]
 async fn test_blame() {
     let job = Job {
-        flow_file: PathBuf::from("/Users/fjyulu/enterprise/playground/new/warehouse/cron/warehouse/it_digital_day.flow"),
+        flow_file: PathBuf::from(
+            "/Users/fjyulu/enterprise/playground/new/warehouse/cron/warehouse/it_digital_day.flow",
+        ),
         start: 239,
         end: 246,
         flow: "idc_bill_cost_new".to_string(),
